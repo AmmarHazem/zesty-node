@@ -1,10 +1,39 @@
 import crypto from "crypto";
 import { StatusCodes } from "http-status-codes";
 import UserModel from "../models/User.js";
-import TokenModel from "../models/Token.js";
 import CustomErrors from "../errors/index.js";
 import sendVerificationEmail from "../helpers/sendEmailVerification.js";
-import { createRefreshJWT, createAccessJWT } from "../helpers/jwt.js";
+import loginUser from "../helpers/loginUser.js";
+import TokenModel from "../models/Token.js";
+import { createAccessJWT } from "../helpers/jwt.js";
+import jwt from "jsonwebtoken";
+
+const refreshToken = async (request, response) => {
+  const refreshJWT = request.body.refreshJWT;
+  if (!refreshJWT) {
+    throw new CustomErrors.BadRequestError("refresh token is requierd");
+  }
+  const jwtPayload = jwt.verify(refreshJWT, process.env.JWT_SECRET);
+  const refreshToken = await TokenModel.findOne({
+    refreshToken: jwtPayload.refreshToken,
+  }).populate("user", "_id name email phone role emailVerified");
+  if (!refreshToken || !refreshToken.isValid) {
+    throw new CustomErrors.BadRequestError("invalid or expired refresh token");
+  }
+  const responseUser = {
+    _id: refreshToken.user._id,
+    email: refreshToken.user.email,
+    phone: refreshToken.user.phone,
+    role: refreshToken.user.role,
+    emailVerified: refreshToken.user.emailVerified,
+  };
+  const accessJWT = createAccessJWT({ user: responseUser });
+  response.json({
+    user: responseUser,
+    accessToken: accessJWT,
+    refreshToken: refreshJWT,
+  });
+};
 
 const login = async (request, response) => {
   const { email, password } = request.body;
@@ -45,18 +74,6 @@ const verifyEmail = async (request, response) => {
     await user.save();
   }
   loginUser({ user, response });
-  // response.json({
-  //   message: "Your email has been verified",
-  //   user: {
-  //     _id: user._id,
-  //     name: user.name,
-  //     phone: user.phone,
-  //     email: user.email,
-  //     role: user.role,
-  //     emailVerified: user.emailVerified,
-  //     emailVerificationDate: user.emailVerificationDate,
-  //   },
-  // });
 };
 
 const register = async (request, response) => {
@@ -119,4 +136,4 @@ const register = async (request, response) => {
   });
 };
 
-export default { register, verifyEmail, login };
+export default { register, verifyEmail, login, refreshToken };
